@@ -1,0 +1,133 @@
+// -*- mode: js2; -*-
+"use strict";
+
+
+const align     = require('string-align');
+const cassandra = require('cassandra-driver');
+const colors    = require('colors/safe');
+const fs        = require('fs');
+const yaml      = require('js-yaml');
+const P         = require('bluebird');
+
+const balancing = cassandra.policies.loadBalancing;
+const green     = colors.green;
+const red       = colors.red;
+const yellow    = colors.yellow;
+
+const argv      = require('yargs')
+      .usage('Usage: $0 <keyspace> <table>')
+      .demandCommand(2)
+      .options('h', {alias: 'help'})
+      .options('H', {
+          alias: 'hostname',
+          default: 'localhost',
+          describe: 'Contact hostname',
+          type: 'string'
+      })
+      .options('P', {
+          alias: 'port',
+          default: 9042,
+          describe: 'Contact port number',
+          type: 'number'
+      })
+      .options('u', {
+          alias: 'username',
+          default: 'cassandra',
+          describe: 'Cassandra username',
+          type: 'string'
+      })
+      .options('p', {
+          alias: 'password',
+          default: 'cassandra',
+          describe: 'Cassandra password',
+          type: 'string'
+      })
+      .options('c', {
+          alias: 'config',
+          describe: 'RESTBase configuration file',
+          type: 'string'
+      })
+      .argv;
+
+if (argv.help) {
+    yargs.showHelp();
+    process.exit(0);
+}
+
+const host     = argv.hostname;
+const port     = argv.port;
+const keyspace = argv._[0];
+const table    = argv._[1];
+const contact  = `${host}:${port}`;
+
+var user, pass;
+
+function getConfig(fname) {
+    const config = yaml.safeLoad(fs.readFileSync(fname));
+    return config.default_project['x-modules'][0].options.table;
+}
+
+// Parse the user/pass from a RESTBase config, if supplied.
+if (argv.config) {
+    const conf = getConfig(argv.config);
+    user = conf.username;
+    pass = conf.password;
+}
+else {
+    user = argv.username;
+    pass = argv.password;
+}
+
+/** Creates a single entry whitelisting loadbalancing policy. */
+const whitelist = (contact) => {
+    return new balancing.WhiteListPolicy(new balancing.RoundRobinPolicy(), [ contact ]);
+};
+
+/** Creates a single connection pool. */
+function connect(contact, username, password) {
+    const client = new cassandra.Client({
+        contactPoints: [ contact ],
+        authProvider: new cassandra.auth.PlainTextAuthProvider(username, password),
+        sslOptions: { ca: '/dev/null' },
+        promiseFactory: P.fromCallback,
+        queryOptions: { consistency: cassandra.types.consistencies.one },
+        policies: { loadBalancing: whitelist(contact) }
+    });
+    return client.connect().then(() => client);
+}
+
+function getNodesList() {
+    return connect(contact, user, pass)
+        .then((client) => {
+            return P.resolve(client.hosts.keys()).finally(() => client.shutdown());
+        });
+}
+
+const cqlQuery = 'SELECT keyspace_name,table_name,id FROM system_schema.tables WHERE keyspace_name=? AND table_name=?';
+
+getNodesList()
+    .then((nodes) => {
+        return P.each(nodes, (node) => {
+            return connect(node, user, pass)
+                .then((client) => {
+                    let lastId;
+                    let colorFun = green;
+                    return client.execute(cqlQuery, [keyspace, table])
+                        .then((res) => {
+                            if (res.rows.length < 1) {
+                                console.log(`${yellow(align(node, 20, 'left'))}`, red('| NOT FOUND'));
+                            }
+                            res.rows.forEach((row) => {
+                                if (lastId && (lastId !== row.id))
+                                    colorFun = colors.red;
+
+                                console.log(yellow(align(node, 20, 'left')),
+                                    colorFun(`| ${row.keyspace_name} | ${row.table_name} | ${row.id}`));
+
+                                lastId = row.id;
+                            });
+                        })
+                        .finally(() => client.shutdown());
+                });
+        });
+    });

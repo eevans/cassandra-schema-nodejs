@@ -1,0 +1,28 @@
+{
+  "name": "cassandra-schema",
+  "version": "1.0.0",
+  "description": "Schema utility code for Apache Cassandra",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "bin": {
+    "agrees": "./bin/agrees"
+  },
+  "repository": {
+    "type": "git",
+    "url": "github.com/eevans/cassandra-schema"
+  },
+  "author": "Eric Evans <eevans@wikimedia.org>",
+  "license": "Apache2",
+  "bugs": {
+    "url": "https://github.com/eevans/cassandra-schema/issues"
+  },
+  "dependencies": {
+    "bluebird": "3.5.1",
+    "cassandra-driver": "3.3.0",
+    "colors": "1.1.2",
+    "js-yaml": "^3.10.0",
+    "string-align": "0.2.0",
+    "yargs": "10.0.3"
+  }
+}
