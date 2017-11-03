@@ -77,7 +77,14 @@ else {
     pass = argv.password;
 }
 
-check(host, port, { username: user, password: pass})
+const options = {
+    credentials: {
+        username: user,
+        password: pass
+    }
+};
+
+check(host, port, options)
     .then((result) => {
         const agrees = result.agrees;
         const versions = result.versions;

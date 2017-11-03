@@ -20,25 +20,31 @@ const whitelist = (contact) => {
 
 
 /** Creates a single connection pool. */
-function connect(host, port, creds) {
+function connect(host, port, options) {
+    const disableSsl = (options && options.withoutSsl) ? true : false;
+    const maxAgreementWait = (options && options.maxAgreementWait) ? options.maxAgreementWait : 10;
+    const creds = options.credentials;
     return lookup(host)
         .then((address) => {
             const contact = `${address}:${port}`;
-            const client = new cassandra.Client({
+            const config = {
                 contactPoints: [ contact ],
                 authProvider: new cassandra.auth.PlainTextAuthProvider(creds.username, creds.password),
-                sslOptions: { ca: '/dev/null' },
                 promiseFactory: P.fromCallback,
+                protocolOptions: { maxSchemaAgreementWait: maxAgreementWait },
                 queryOptions: { consistency: cassandra.types.consistencies.one },
                 policies: { loadBalancing: whitelist(contact) }
-	    });
+            };
+            if (!disableSsl)
+                config.sslOptions = { ca: '/dev/null' };
+            const client = new cassandra.Client(config);
 	    return client.connect().then(() => client);
         });
 }
 
 
-function getPeerVersions(host, port, credentials) {
-    return connect(host, port, credentials)
+function getPeerVersions(host, port, options) {
+    return connect(host, port, options)
         .then((client) => {
             return client.execute(SELECT_SCHEMA_PEERS)
                 .then((res) => {
@@ -55,8 +61,8 @@ function getPeerVersions(host, port, credentials) {
 }
 
 
-function getLocalVersion(host, port, credentials) {
-    return connect(host, port, credentials)
+function getLocalVersion(host, port, options) {
+    return connect(host, port, options)
         .then((client) => {
             return client.execute(SELECT_SCHEMA_LOCAL)
                 .then((res) => {
@@ -76,11 +82,11 @@ function getLocalVersion(host, port, credentials) {
 }
 
 
-function getVersions(host, port, credentials) {
-    return getPeerVersions(host, port, credentials)
+function getVersions(host, port, options) {
+    return getPeerVersions(host, port, options)
 	.then((peers) => {
 	    const result = Object.assign({}, peers);
-	    return getLocalVersion(host, port, credentials)
+	    return getLocalVersion(host, port, options)
 		.then((local) => {
 		    return Object.assign(result, local);
 		});
@@ -88,8 +94,8 @@ function getVersions(host, port, credentials) {
 }
 
 
-function checkSchemaAgreement(host, port, credentials) {
-    return getVersions(host, port, credentials)
+function checkSchemaAgreement(host, port, options) {
+    return getVersions(host, port, options)
 	.then((versions) => {
 	    const values = (obj) => Object.keys(obj).map((o) => obj[o]);
 	    const unique = new Set(values(versions));
@@ -101,4 +107,4 @@ function checkSchemaAgreement(host, port, credentials) {
 }
 
 
-module.exports = { checkSchemaAgreement };
+module.exports = { checkSchemaAgreement, connect };

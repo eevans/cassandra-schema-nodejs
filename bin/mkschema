@@ -1,0 +1,133 @@
+// -*- mode: js2; -*-
+"use strict";
+
+
+const align           = require('string-align');
+const cassandraSchema = require('../cassandra-schema');
+const colors          = require('colors/safe');
+const fs              = require('fs');
+const P               = require('bluebird');
+const retry           = require('bluebird-retry');
+const yaml            = require('js-yaml');
+const yargs           = require('yargs');
+
+const blue            = colors.blue;
+const green           = colors.green;
+const yellow          = colors.yellow;
+
+const argv            = yargs
+      .usage('Usage: $0 <schema.yaml>')
+      .options('h', {alias: 'help'})
+      .demandCommand(1)
+      .options('H', {
+          alias: 'hostname',
+          default: 'localhost',
+          describe: 'Contact hostname',
+          type: 'string'
+      })
+      .options('P', {
+          alias: 'port',
+          default: 9042,
+          describe: 'Contact port number',
+          type: 'number'
+      })
+      .options('u', {
+          alias: 'username',
+          default: 'cassandra',
+          describe: 'Cassandra username',
+          type: 'string'
+      })
+      .options('p', {
+          alias: 'password',
+          default: 'cassandra',
+          describe: 'Cassandra password',
+          type: 'string'
+      })
+      .options('c', {
+          alias: 'config',
+          describe: 'RESTBase configuration file',
+          type: 'string'
+      })
+      .options('without-ssl', {
+          describe: 'Disable SSL encryption',
+          type: 'boolean'
+      })
+      .options('max-wait-secs', {
+          describe: 'The maximum time to wait for agreement (after a DDL statement execution)',
+          default: 10,
+          type: 'number'
+      })
+      .argv;
+
+if (argv.help) {
+    yargs.showHelp();
+    process.exit(0);
+}
+
+const host     = argv.hostname;
+const port     = argv.port;
+const manifest = argv._[0];
+
+var user, pass;
+
+
+function getConfig(fname) {
+    const config = yaml.safeLoad(fs.readFileSync(fname));
+    return config.default_project['x-modules'][0].options.table;
+}
+
+
+// Parse the user/pass from a RESTBase config, if supplied.
+if (argv.config) {
+    const conf = getConfig(argv.config);
+    user = conf.username;
+    pass = conf.password;
+}
+else {
+    user = argv.username;
+    pass = argv.password;
+}
+
+const options = {
+    credentials: {
+        username: user,
+        password: pass
+    },
+    withoutSsl: argv.withoutSsl,
+    maxAgreementWait: argv.maxWaitSecs
+};
+
+
+const log = (...args) => console.log(`[${yellow(new Date().toISOString())}] `, ...args);
+
+
+cassandraSchema.connect(host, port, options)
+    .then((client) => {
+        const schema = yaml.safeLoad(fs.readFileSync(manifest));
+        const retryOpts = { interval: 5000, backoff: 2, max_tries: 3 };
+        return P.each(Object.keys(schema), (label) => {
+            const statement = schema[label].statement;
+            if (!statement)
+                throw new Error(`${label} is missing a valid 'statement' attribute`);
+
+            log(`Applying '${label}'...`);
+            return client.execute(statement)
+                .then(() => {
+                    let attempts = 0;
+                    // retry() the test of schema-agreement test until it passes
+                    return retry(() => {
+                        log(`Verifying schema agreement (attempt #${++attempts})...`);
+                        return cassandraSchema.checkSchemaAgreement(host, port, options)
+                            .then((agrees) => {
+                                if (agrees)
+                                    return true;
+                                throw new Error('Schema not in agreement!');
+                            });
+                    }, retryOpts)
+                        .then((result) => {
+                            log(`Successfully applied '${label}'`);
+                        });
+                });
+        })
+        .finally(() => client.shutdown());
+    });

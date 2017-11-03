@@ -1,0 +1,29 @@
+
+drop_keyspace:
+  statement: |
+    DROP KEYSPACE IF EXISTS db
+
+create_keyspace:
+  comment: |
+    The containing keyspace
+  statement: |
+    CREATE KEYSPACE IF NOT EXISTS db
+        WITH replication = {'class': 'SimpleStrategy', 'replication_factor': '1'};
+
+create_users:
+  comment: |
+    A table for storing users
+  statement: |
+    CREATE TABLE db.users (
+        id text PRIMARY KEY,
+        given text,
+        surname text
+    )
+create_groups:
+  comment: |
+    A place for storing groups
+  statement: |
+    CREATE TABLE db.groups (
+        id text PRIMARY KEY,
+        name text
+    )
