@@ -24,6 +24,7 @@ function connect(host, port, options) {
     const disableSsl = (options && options.withoutSsl) ? true : false;
     const maxAgreementWait = (options && options.maxAgreementWait) ? options.maxAgreementWait : 10;
     const creds = options.credentials;
+    const readTimeout = (options.readTimeout && options.readTimeout) ? options.readTimeout : 24000;
     return lookup(host)
         .then((address) => {
             const contact = `${address}:${port}`;
@@ -33,6 +34,7 @@ function connect(host, port, options) {
                 promiseFactory: P.fromCallback,
                 protocolOptions: { maxSchemaAgreementWait: maxAgreementWait },
                 queryOptions: { consistency: cassandra.types.consistencies.one },
+                socketOptions: { readTimeout },
                 policies: { loadBalancing: whitelist(contact) }
             };
             if (!disableSsl)

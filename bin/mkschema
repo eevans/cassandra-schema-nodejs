@@ -57,6 +57,11 @@ const argv            = yargs
           default: 10,
           type: 'number'
       })
+      .options('read-timeout', {
+          describe: 'Driver read timeout in milliseconds',
+          default: 24000,
+          type: 'number'
+      })
       .argv;
 
 if (argv.help) {
@@ -94,7 +99,8 @@ const options = {
         password: pass
     },
     withoutSsl: argv.withoutSsl,
-    maxAgreementWait: argv.maxWaitSecs
+    maxAgreementWait: argv.maxWaitSecs,
+    readTimeout: argv.readTimeout
 };
 
 
