@@ -2,16 +2,17 @@
 "use strict";
 
 
-const align  = require('string-align');
-const check  = require('../cassandra-schema').checkSchemaAgreement;
-const colors = require('colors/safe');
-const fs     = require('fs');
-const yaml   = require('js-yaml');
-const P      = require('bluebird');
+const P       = require('bluebird');
+const align   = require('string-align');
+const check   = require('../cassandra-schema').checkSchemaAgreement;
+const colors  = require('colors/safe');
+const fs      = require('fs');
+const reverse = P.promisify(require('dns').reverse);
+const yaml    = require('js-yaml');
 
-const green  = colors.green;
-const red    = colors.red;
-const yellow = colors.yellow;
+const green   = colors.green;
+const red     = colors.red;
+const yellow  = colors.yellow;
 
 const argv  = require('yargs')
       .usage('Usage: $0 [options]')
@@ -49,6 +50,10 @@ const argv  = require('yargs')
 	  describe: 'Use verbose output',
 	  type: 'boolean'
       })
+      .options('resolve', {
+          describe: 'Resolve IP addresses to hostnames',
+          type: 'boolean'
+      })
       .argv;
 
 if (argv.help) {
@@ -84,18 +89,48 @@ const options = {
     }
 };
 
+
+/**
+ * Massage a node/version map as necessary to resolve IP addresses
+ * into hostnames.
+ */
+function maybeResolve(versions) {
+    if (argv.verbose && argv.resolve) {
+        const massaged = {};
+        const deferred = [];
+        Object.keys(versions).forEach((key) => {
+            deferred.push(
+                reverse(key)
+                    .then((host) => {
+                        massaged[host] = versions[key];
+                    })
+            );
+        });
+        return P.all(deferred)
+            .then(() => {
+                return massaged;
+            });
+    }
+    else {
+        // No transformations necessary; Return as-is
+        return P.resolve(versions);
+    }
+}
+
+
 check(host, port, options)
     .then((result) => {
         const agrees = result.agrees;
-        const versions = result.versions;
+        maybeResolve(result.versions)
+            .then((versions) => {
+                if (argv.verbose) {
+                    Object.keys(versions).forEach((key) => {
+		        console.log(`${yellow(align(key, 16, 'left'))}`, '|', `${green(versions[key])}`);
+	            });
+                }
 
-	if (argv.verbose) {
-	    Object.keys(versions).forEach((key) => {
-		console.log(`${yellow(align(key, 16, 'left'))}`, '|', `${green(versions[key])}`);
-	    });
-	}
-
-        const colorFun = agrees ? green : red;
-        console.log(colorFun(`Nodes ${agrees ? '' : 'DO NOT '}agree on schema versions`));
-	process.exit(agrees ? 0 : 5);
+                const colorFun = agrees ? green : red;
+                console.log(colorFun(`Nodes ${agrees ? '' : 'DO NOT '}agree on schema versions`));
+                process.exit(agrees ? 0 : 5);
+            });
     });
