@@ -45,7 +45,7 @@ const argv      = require('yargs')
       })
       .options('c', {
           alias: 'config',
-          describe: 'RESTBase configuration file',
+          describe: 'RESTBase configuration vars file',
           type: 'string'
       })
       .argv;
@@ -64,15 +64,14 @@ const contact  = `${host}:${port}`;
 var user, pass;
 
 function getConfig(fname) {
-    const config = yaml.safeLoad(fs.readFileSync(fname));
-    return config.default_project['x-modules'][0].options.table;
+    return yaml.safeLoad(fs.readFileSync(fname));
 }
 
 // Parse the user/pass from a RESTBase config, if supplied.
 if (argv.config) {
     const conf = getConfig(argv.config);
-    user = conf.username;
-    pass = conf.password;
+    user = conf.cassandra_user;
+    pass = conf.cassandra_password;
 }
 else {
     user = argv.username;
