@@ -46,6 +46,10 @@ const argv  = require('yargs')
           describe: 'RESTBase configuration vars file',
           type: 'string'
       })
+      .options('without-ssl', {
+          describe: 'Disable SSL encryption',
+          type: 'boolean'
+      })
       .options('verbose', {
 	  describe: 'Use verbose output',
 	  type: 'boolean'
@@ -85,7 +89,8 @@ const options = {
     credentials: {
         username: user,
         password: pass
-    }
+    },
+    withoutSsl: argv.withoutSsl
 };
 
 
